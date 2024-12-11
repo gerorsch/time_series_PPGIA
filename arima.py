@@ -13,7 +13,7 @@ class ARIMAModel:
         self.is_stationary = None
         self.adf_result = None
 
-    def check_stationarity(self, alpha=0.05, plot_acf_pacf=True):
+    def check_stationarity(self, series, alpha=0.05, plot_acf_pacf=True):
         """
         Verifica estacionariedade com base no teste ADF e na análise da ACF/PACF.
 
@@ -25,7 +25,7 @@ class ARIMAModel:
             dict: Resultados do teste de estacionariedade e diagnósticos visuais.
         """
         # Teste de Dickey-Fuller Aumentado
-        adf_result = adfuller(self.series, autolag="AIC")
+        adf_result = adfuller(series, autolag="AIC")
         p_value = adf_result[1]
         test_stat = adf_result[0]
         critical_values = adf_result[4]
@@ -41,7 +41,7 @@ class ARIMAModel:
 
         # Diagnóstico ACF e PACF
         if plot_acf_pacf:
-            self._plot_acf_pacf(self.series)
+            self._plot_acf_pacf(series)
 
         return self.adf_result
 
@@ -58,42 +58,22 @@ class ARIMAModel:
         plt.tight_layout()
         plt.show()
 
-    def transform_series(self, diff_order=1):
-        """
-        Aplica transformações para tornar a série estacionária.
-
-        Args:
-            diff_order (int): Ordem de diferenciação para remover tendência.
-            seasonal_diff_order (int): Ordem de diferenciação sazonal.
-            seasonal_period (int): Período sazonal (ex: 12 para dados mensais).
-
-        Returns:
-            pd.Series: Série transformada.
-        """
-        series = self.series
-        # Diferenciação para remover tendência
-        if diff_order > 0:
-            series = series.diff(diff_order).dropna()
-
-        self.transformed_series = series
-        return series
-
-
     def difference(self, series, order=1):
         """
-        Aplica diferenciação na série para torná-la estacionária.
+        Aplica diferenciação na série (DataFrame) para torná-la estacionária.
 
         Args:
-            series (array-like): Série temporal.
+            series (pandas.DataFrame): Série temporal no formato DataFrame.
             order (int): Ordem da diferenciação.
 
         Returns:
-            np.ndarray: Série diferenciada.
+            pandas.DataFrame: Série diferenciada.
         """
         diff_series = series.copy()
         for _ in range(order):
-            diff_series = np.diff(diff_series, n=1)
+            diff_series = diff_series.diff().dropna()  # Aplica diferenças e remove NaN
         return diff_series
+
 
     def inverse_difference(self, original_series, diff_series, order=1):
         """
@@ -109,10 +89,40 @@ class ARIMAModel:
         """
         inverted_series = diff_series.copy()
         for _ in range(order):
-            inverted_series = np.r_[original_series[:1], inverted_series].cumsum()
+            # Usar os valores iniciais de original_series para reconstruir a escala
+            inverted_series = np.r_[original_series[-len(inverted_series):][0], inverted_series].cumsum()
         return inverted_series
+    
+    def autoregressive_term(self, series, phi, p):
+        """
+        Calcula o termo autorregressivo com base nos parâmetros phi.
 
-    def fit_arima(self, series, p, d, q):
+        Args:
+            series (array-like): Série temporal.
+            phi (array-like): Coeficientes autorregressivos.
+            p (int): Ordem autorregressiva.
+
+        Returns:
+            float: Valor do termo autorregressivo.
+        """
+        return sum(phi[j] * series[-j - 1] for j in range(p))
+
+    def moving_average_term(self, residuals, theta, q):
+        """
+        Calcula o termo de médias móveis com base nos parâmetros theta.
+
+        Args:
+            residuals (array-like): Resíduos do modelo.
+            theta (array-like): Coeficientes de médias móveis.
+            q (int): Ordem da média móvel.
+
+        Returns:
+            float: Valor do termo de médias móveis.
+        """
+        return sum(theta[k] * residuals[-k - 1] for k in range(q))
+
+
+    def fit(self, series, p, d, q):
         """
         Ajusta o modelo ARIMA manualmente.
 
@@ -125,17 +135,32 @@ class ARIMAModel:
         Returns:
             dict: Coeficientes ajustados e resíduos.
         """
+        # Garantir que a série seja um array NumPy
+        if isinstance(series, pd.DataFrame):
+            series = series.values.flatten()
+        elif isinstance(series, pd.Series):
+            series = series.values
+
         n = len(series)
+        if n <= max(p, q):
+            raise ValueError(f"Série muito curta para ajustar ARIMA({p},{d},{q}). Tamanho da série: {n}, necessário: {max(p, q) + 1}")
+
         X = np.zeros((n - max(p, q), p + q))
 
-        for i in range(max(p, q), n):
-            # Autorregressivo
-            for j in range(p):
-                X[i - max(p, q), j] = series[i - j - 1] if i - j - 1 >= 0 else 0
+        phi = np.random.rand(p)  # Coeficientes autorregressivos iniciais
+        theta = np.random.rand(q)  # Coeficientes de médias móveis iniciais
+        residuals = np.zeros(n)  # Inicializar resíduos
 
-            # Média móvel
-            for k in range(q):
-                X[i - max(p, q), p + k] = series[i - k - 1] if i - k - 1 >= 0 else 0
+        for i in range(max(p, q), n):
+            # Termo autorregressivo
+            ar_term = self.autoregressive_term(series[:i], phi, p)
+
+            # Termo de médias móveis
+            ma_term = self.moving_average_term(residuals[:i], theta, q)
+
+            # Construção da matriz de preditores
+            X[i - max(p, q), :p] = ar_term
+            X[i - max(p, q), p:] = ma_term
 
         y = series[max(p, q):]
 
@@ -148,6 +173,7 @@ class ARIMAModel:
             "coeffs": coeffs,
             "residuals": residuals
         }
+
 
     def forecast_arima(self, series, coeffs, p, q, steps):
         """
@@ -175,7 +201,7 @@ class ARIMAModel:
 
         return np.array(forecast)
 
-    def grid_search(self, max_p, max_q, train_split=0.8, max_d=5, threshold=0.05):
+    def grid_search(self, max_p, max_d, max_q, train_split=0.9):
         """
         Realiza uma busca em grade para encontrar os melhores parâmetros (p, d, q) para o modelo ARIMA.
 
@@ -202,34 +228,42 @@ class ARIMAModel:
         transformed_train = train.copy()
         d = 0
         while d < max_d:
-            stationarity_result = self.check_stationarity(transformed_train, threshold=threshold)
+            stationarity_result = self.check_stationarity(transformed_train.values.flatten(), plot_acf_pacf=False)
             if stationarity_result["Is Stationary"]:
                 break
-            transformed_train = self.difference(transformed_train)
+
+            transformed_train = self.difference(transformed_train, order=1)
             d += 1
+
+        if transformed_train.empty or len(transformed_train) <= max_p + max_q:
+            raise ValueError("A série transformada é muito curta para ajuste do modelo ARIMA.")
+
 
         # Iteração pelos valores de p e q
         for p in range(max_p + 1):
             for q in range(max_q + 1):
                 try:
+                    print(f"Tentando ARIMA({p},{d},{q})...")  # Log de tentativa
+                    
                     # Ajuste do modelo ARIMA
-                    model = self.fit_arima(transformed_train, p, d, q)
+                    model = self.fit(transformed_train.values.flatten(), p, d, q)
 
                     # Previsões
-                    forecast = self.forecast_arima(transformed_train, model["coeffs"], p, q, len(validation))
+                    forecast = self.forecast_arima(transformed_train.values.flatten(), model["coeffs"], p, q, len(validation))
 
                     # Reversão da diferenciação
-                    forecast_inverted = self.inverse_difference(train, forecast, order=d)
-
-                    # Calcula o erro (MSE) entre previsões e valores reais
-                    mse = mean_squared_error(validation, forecast_inverted)
+                    forecast_inverted = self.inverse_difference(train.values.flatten(), forecast, order=d)
+                    # Ajuste os tamanhos para coincidirem
+                    min_len = min(len(validation.values.flatten()), len(forecast_inverted))
+                    mse = mean_squared_error(validation.values.flatten()[:min_len], forecast_inverted[:min_len])
+                    print(f"ARIMA({p},{d},{q}) -> MSE: {mse}")  # Log do resultado
 
                     # Atualiza os melhores parâmetros se o erro for menor
                     if mse < best_score:
                         best_score = mse
                         best_params = (p, d, q)
                 except Exception as e:
-                    # Ignora combinações que causam erros
+                    print(f"Erro com ARIMA({p},{d},{q}): {e}")  # Log de erro
                     continue
 
         # Armazena os melhores parâmetros e seu desempenho
@@ -239,6 +273,25 @@ class ARIMAModel:
             "Best Params": best_params,
             "Best MSE": best_score
         }
+
+    def plot_forecast(self, actual, forecast, steps):
+        """
+        Gera um gráfico comparando os valores reais com as previsões.
+
+        Args:
+            actual (array-like): Valores reais da série temporal.
+            forecast (array-like): Valores previstos pelo modelo.
+            steps (int): Número de passos de previsão.
+        """
+        plt.figure(figsize=(10, 6))
+        plt.plot(range(len(actual)), actual, label="Valores Reais", color="blue")
+        plt.plot(range(len(actual) - steps, len(actual)), forecast, label="Previsões", color="orange")
+        plt.title("Comparação entre valores reais e previsões")
+        plt.xlabel("Tempo")
+        plt.ylabel("Valor")
+        plt.legend()
+        plt.grid()
+        plt.show()
 
         
         

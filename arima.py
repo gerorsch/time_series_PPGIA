@@ -159,7 +159,7 @@ class ARIMAModel:
             forecast = ARIMATools.inverse_difference(self.original_data, forecast, self.d)
 
         return forecast
-
+    #TODO: Implementar a função iterative_predict
     def iterative_predict(model, steps):
         """
         Realiza previsões iterativas usando a série diferenciada, sem reintegrar os valores.
@@ -499,6 +499,7 @@ class ARIMATools:
         print(f'Melhor configuração: ARIMA{best_cfg} com MSE={best_score:.3f}')
         return {'best_params': best_cfg, 'best_mse': best_score}
     
+    #TODO: Implementar a função plot_forecast_differenced
     @staticmethod
     def plot_forecast_differenced(original_series, forecast, steps):
         """

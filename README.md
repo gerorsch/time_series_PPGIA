@@ -3,7 +3,7 @@
 ## Overview
 This library implements an ARIMA (AutoRegressive Integrated Moving Average) model for time series forecasting, designed to work without additional external dependencies like statsmodels for model fitting. The implementation includes tools for model fitting, forecasting, residual analysis, and hyperparameter optimization.
 
-This project was created for the course **PGIA7326 - SISTEMAS INTELIGENTES PARA ANÁLISE E PREVISÃO DE SISTEMAS COMPLEXOS - 2024.2**, part of the **Graduate Program in Applied Informatics** at the **Universidade Federal Rural de Pernambuco (UFRPE)**.
+This project was created for the course **PGIA7326 - SISTEMAS INTELIGENTES PARA ANÁLISE E PREVISÃO DE SISTEMAS COMPLEXOS - 2024.2**, part of the **Postgraduate Program in Applied Informatics** at the **Universidade Federal Rural de Pernambuco (UFRPE)**.
 
 ---
 
